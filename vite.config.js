@@ -37,7 +37,15 @@ export default defineConfig({
         display: 'standalone',
         theme_color: '#07191E',
         background_color: '#07191E',
-        icons: [],
+        // Placeholder icons generated from the existing brand mark (see
+        // scripts/gen-pwa-icons.mjs) — required for Chrome/Edge to consider
+        // the app installable at all. Swap public/pwa-*.png for real
+        // logo-derived versions whenever a proper logo is supplied.
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
     }),
   ],
