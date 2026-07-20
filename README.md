@@ -1,14 +1,17 @@
 # Mr YUM Bakers And General Store — POS
 
-A full point-of-sale system for Mr YUM Bakers And General Store: staff accounts with roles, a
-Register (billing) screen, an Inventory Dashboard with full audit trail, Suppliers & Purchase
-Orders, Customers, and Sales Reports — backed by Supabase.
+A full, **offline-first** point-of-sale system for Mr YUM Bakers And General Store: staff accounts
+with roles, a Register (billing) screen, an Inventory Dashboard with full audit trail, Suppliers &
+Purchase Orders, Customers, Udhar/credit accounts, and Sales Reports — backed by Supabase, and
+fully installable as a PWA that keeps working with zero internet connection.
 
 Built with:
 
 - **React 19 + Vite** — frontend
 - **Tailwind CSS** — styling, using the exact color/font/spacing tokens from the Stitch-generated design
 - **Supabase** — Postgres database, Auth, Storage, auto-generated REST API, and row-level security
+- **Dexie.js (IndexedDB)** — local-first data store; every read in the app is served from here, online or off
+- **vite-plugin-pwa / Workbox** — installable app shell that precaches the build so a cold, fully-offline reload still loads the app
 - **React Router** — client-side routing
 - Material Symbols (Google Fonts) for icons, Playfair Display + Plus Jakarta Sans for type
 
@@ -106,8 +109,11 @@ npm run lint      # run oxlint
 | Printable / emailable receipt | `src/components/billing/ReceiptModal.jsx` — print via browser, or a pre-filled `mailto:` link |
 | Reports: date range, profit, export | `src/pages/Reports.jsx` — Today / Week / Month / All Time, CSV export |
 | Configurable tax rate, currency, store name | `app_settings` table, `src/pages/Settings.jsx` (Manager only) |
-| Basic offline sale queue | `src/context/CartContext.jsx` — sales made while offline are queued in `localStorage` and synced automatically when the connection returns |
-| Role-based access control | Row-level security in `supabase/schema.sql` (`is_manager()`) + UI gating throughout |
+| Udhar / credit accounts | `src/pages/CreditAccounts.jsx`, `src/pages/CreditAccountDetail.jsx` — running balance computed live from local + synced transactions, never a stale cached number |
+| Full offline-first data layer | `src/lib/db.js`, `src/lib/sync.js` — every list reads from IndexedDB first, always; a background sync engine pushes/pulls each table without ever blocking the UI |
+| Installable, works with zero connectivity | `vite-plugin-pwa` config in `vite.config.js` — a cold reload with no network still loads the full app shell |
+| Offline sign-in & multi-account switching | `src/lib/offlineAuth.js` — once verified online, an account can sign back in (or switch between multiple cached accounts on the same device) with no network at all |
+| Role-based access control | Row-level security in `supabase/schema.sql` (`is_manager()`) + UI gating throughout, with permission-specific error messages surfaced from failed syncs |
 
 ### How "Complete Sale" works
 
@@ -116,6 +122,35 @@ payment_method)` (see `supabase/schema.sql`), which inserts the `sales` row, eve
 row, decrements `products.stock_quantity`, and logs a `stock_movements` row per item — all in one
 atomic database transaction. A sale can never be recorded without the matching stock update and
 audit trail entry.
+
+### Offline-first architecture
+
+Every screen in the app reads from a local **IndexedDB** database (via [Dexie.js](https://dexie.org)),
+never directly from Supabase — network sync only ever runs in the background to keep that local
+copy fresh. This means the UI never blocks waiting on a network request, which matters more than
+it sounds: `navigator.onLine` is not a reliable signal (it only reflects whether a network adapter
+is connected, not whether the internet is actually reachable), so a naive "check online, then
+fetch" pattern can leave a screen stuck waiting on a request that's doomed to fail for a long time.
+
+- **Local-first reads**: `src/lib/db.js` defines the Dexie schema (products, sales, customers,
+  suppliers, credit_transactions, purchase_orders, stock_movements, categories, staff sessions...).
+  Every hook (`useProducts`, `useSuppliers`, `useCustomers`, etc.) loads from Dexie first and shows
+  it immediately; a sync attempt runs after, strictly in the background.
+- **Serialized sync engine**: `src/lib/sync.js` pushes every table's pending local writes, then
+  pulls fresh data for every table, as two full passes — never interleaved — so an in-flight write
+  is never clobbered by a stale read. Concurrent sync triggers (page mounts, the periodic timer, the
+  browser's `online` event) are coalesced onto a single serialized promise chain, so two passes can
+  never race on the same record.
+- **Remote-delete reconciliation**: a row deleted directly in Supabase (dashboard, another device)
+  is detected on the next full pull and removed locally too — without ever touching a record that's
+  still pending a local write of its own.
+- **Offline-capable auth**: `src/lib/offlineAuth.js` mirrors a verified session into IndexedDB per
+  account, so any previously-verified staff member can sign back in — or switch to a *different*
+  previously-verified account on the same shared device — with zero network calls, inside a rolling
+  30-day trust window.
+- **Installable app shell**: `vite-plugin-pwa` precaches the built HTML/JS/CSS at build time, so a
+  cold tab open or hard refresh with literally no connection still loads the full app instead of a
+  browser error page.
 
 ### Roles: what a Cashier can and can't do
 
@@ -134,8 +169,6 @@ all data; there's no public/anonymous access.
 
 ### Known simplifications (things a larger POS vendor would build out further)
 
-- **Offline mode** is a simple localStorage queue, not a full offline-first PWA — while offline,
-  the local product list won't reflect a queued sale's stock deduction until it syncs.
 - **Refunds are full refunds only** (no partial/line-item refunds).
 - **Email receipts** use a `mailto:` link (opens the customer's/staff's email client) rather than
   server-sent email, since that would require an SMTP or email-API key you'd need to supply.
@@ -182,8 +215,14 @@ mr-yum-pos/
 │   │   ├── customers/            # CustomerModal
 │   │   └── reports/              # RefundModal
 │   ├── context/                  # AuthContext, SettingsContext, CartContext, ToastContext
-│   ├── hooks/                    # useProducts, useSales, useSuppliers, usePurchaseOrders, useCustomers
+│   ├── hooks/                    # useProducts, useSales, useSuppliers, useSupplierOrders, useCustomers,
+│   │                              # useCreditAccount(s), useCreditTransactions, useCategories, useStaffList
 │   ├── lib/
+│   │   ├── db.js                 # Dexie (IndexedDB) schema — the local-first source of truth
+│   │   ├── sync.js               # background push/pull engine, serialized + two-phase per pass
+│   │   ├── offlineAuth.js        # per-account cached sessions for offline sign-in / account switching
+│   │   ├── creditBalance.js      # computes a customer's live balance from local + synced transactions
+│   │   ├── registerSyncTables.js # imports every hook so its table is registered with the sync engine
 │   │   ├── supabaseClient.js
 │   │   └── csv.js                # CSV export helper
 │   ├── pages/                    # Login, Billing, InventoryDashboard, Reports, Suppliers,
