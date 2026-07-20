@@ -1,0 +1,69 @@
+import { useState } from 'react'
+import Icon from '../common/Icon'
+
+const inputClass =
+  'px-md py-sm bg-surface-container-low border border-outline-variant/30 rounded-xl outline-none focus:ring-2 focus:ring-secondary/20 focus:border-secondary font-body-md text-body-md text-on-surface'
+
+const emptyForm = { name: '', phone: '', email: '', notes: '' }
+
+export default function CustomerModal({ open, onClose, onSubmit }) {
+  const [form, setForm] = useState(emptyForm)
+  const [submitting, setSubmitting] = useState(false)
+
+  if (!open) return null
+
+  const handleChange = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSubmitting(true)
+    const result = await onSubmit({ ...form, name: form.name.trim() })
+    setSubmitting(false)
+    if (result?.success) setForm(emptyForm)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-on-background/40 backdrop-blur-sm px-margin-mobile">
+      <div className="w-full max-w-md bg-surface-container-lowest rounded-[24px] shadow-2xl border border-outline-variant/10">
+        <div className="px-lg py-md border-b border-outline-variant/10 flex items-center justify-between">
+          <h2 className="font-headline-md text-headline-md text-primary">Add Customer</h2>
+          <button type="button" onClick={onClose} className="p-base rounded-full hover:bg-surface-container-high text-on-surface-variant">
+            <Icon name="close" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-lg flex flex-col gap-md">
+          <label className="flex flex-col gap-xs">
+            <span className="font-label-md text-label-md text-on-surface-variant">Name</span>
+            <input required value={form.name} onChange={handleChange('name')} className={inputClass} autoFocus />
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
+            <label className="flex flex-col gap-xs">
+              <span className="font-label-md text-label-md text-on-surface-variant">Phone</span>
+              <input value={form.phone} onChange={handleChange('phone')} className={inputClass} />
+            </label>
+            <label className="flex flex-col gap-xs">
+              <span className="font-label-md text-label-md text-on-surface-variant">Email</span>
+              <input type="email" value={form.email} onChange={handleChange('email')} className={inputClass} />
+            </label>
+          </div>
+          <label className="flex flex-col gap-xs">
+            <span className="font-label-md text-label-md text-on-surface-variant">Notes</span>
+            <input value={form.notes} onChange={handleChange('notes')} className={inputClass} />
+          </label>
+          <div className="flex justify-end gap-sm mt-md">
+            <button type="button" onClick={onClose} className="px-md py-sm rounded-xl font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-high transition-all">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-md py-sm bg-primary text-on-primary rounded-xl font-label-md text-label-md hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md disabled:opacity-60"
+            >
+              {submitting ? 'Saving…' : 'Add Customer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
